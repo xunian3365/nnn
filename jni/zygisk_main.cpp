@@ -5,6 +5,8 @@
 #include <unistd.h> 
 #include "zygisk.hpp"
 
+using namespace zygisk;
+
 typedef VkResult (*PFN_vkGetPhysicalDeviceProperties2)(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2* pProperties2);
 static PFN_vkGetPhysicalDeviceProperties2 orig_vkGetPhysicalDeviceProperties2 = nullptr;
 
@@ -36,42 +38,42 @@ VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, Vk
     return result;
 }
 
-// 核心修复 1：将 zygisk::ModuleBase 修改为标准规范的 zygisk::Module
-class KirinSpoofModule : public zygisk::Module {
+class KirinSpoofModule : public Module {
 public:
-    void onLoad(zygisk::Api* api, JNIEnv* env) override {
+    void onLoad(Api* api, JNIEnv* env) override {
         this->api = api;
         this->env = env;
     }
 
-    void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
-        // 存在disable标记直接跳过所有Hook
+    void preAppSpecialize(AppSpecializeArgs* args) override {
+        // 模块禁用开关判断
         if (access("/data/adb/modules/kirin_snapdragon_ultra/disable", F_OK) == 0 || 
             access("/data/adb/modules/kirin_snapdragon_ultra/fake_cpuinfo", F_OK) != 0) {
-            api->setOption(zygisk::Option::FORCE_DENYLIST_UNHOOK);
+            api->setOption(Option::FORCE_DENYLIST_UNHOOK);
             return; 
         }
 
-        const char* pkg_name = env->GetStringUTFChars(args->package_name, nullptr);
+        // 新版Zygisk SDK兼容：args->package 替代废弃 package_name
+        const char* pkg_name = env->GetStringUTFChars(args->package, nullptr);
         bool target_app = false;
 
         if (pkg_name != nullptr) {
-            // 匹配主包、检测工具
+            // 目标应用：三角洲行动主包、硬件检测工具
             if (strcmp(pkg_name, "com.tencent.tmgp.dfm") == 0) target_app = true;
             if (strcmp(pkg_name, "com.liuzh.deviceinfo") == 0) target_app = true;
 
-            // 匹配分身进程 :game
+            // 匹配游戏分身进程 :game
             const char* proc_name = env->GetStringUTFChars(args->nice_name, nullptr);
-            if (proc_name && strstr(proc_name, "com.tencent.tmgp.dfm:game")) {
-                target_app = true;
+            if (proc_name != nullptr) {
+                if (strstr(proc_name, "com.tencent.tmgp.dfm:game")) {
+                    target_app = true;
+                }
+                env->ReleaseStringUTFChars(args->nice_name, proc_name);
             }
-            env->ReleaseStringUTFChars(args->nice_name, proc_name);
         }
 
-        // 仅目标进程启用GPU伪装
+        // 仅目标进程挂载Vulkan GPU伪装Hook
         if (target_app) {
-            api->setOption(zygisk::Option::FORCE_DENYLIST_UNHOOK);
-            
             void* vulkan_handle = dlopen("libvulkan.so", RTLD_NOW);
             if (vulkan_handle) {
                 auto orig = (PFN_vkGetPhysicalDeviceProperties2)dlsym(vulkan_handle, "vkGetPhysicalDeviceProperties2");
@@ -80,14 +82,19 @@ public:
                     api->pltHookRegister("libvulkan.so", "vkGetPhysicalDeviceProperties2", 
                                          (void*)fake_vkGetPhysicalDeviceProperties2, (void**)&orig_vkGetPhysicalDeviceProperties2);
                 }
+                dlclose(vulkan_handle); // 关闭动态库句柄，消除内存泄漏
             }
         }
-        env->ReleaseStringUTFChars(args->package_name, pkg_name);
+
+        // 安全释放字符串，做空值判断防止崩溃
+        if (pkg_name != nullptr) {
+            env->ReleaseStringUTFChars(args->package, pkg_name);
+        }
     }
 
 private:
-    zygisk::Api* api;
+    Api* api;
     JNIEnv* env;
-}; // <--- 核心修复 2：在这里补上了之前缺失的分号（;）
-
-REGISTER_ZYGISK_MODULE(KirinSpoofModule)
+};
+// 单行无拆分，根治预处理器语法断裂
+REGISTER_ZYGISK_MODULE(KirinSpoofModule);
