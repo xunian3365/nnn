@@ -1,88 +1,34 @@
-/* SPDX-License-Identifier: MIT */
+name: Build Zygisk Spoof SO
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-/* Zygisk API version 4 - Magisk v26.0+ */
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-#pragma once
+      - name: Download Android NDK r26c (Google Official CDN)
+        run: |
+          set -e
+          wget -q --timeout=120 --tries=5 https://dl.google.com/android/repository/android-ndk-r26c-linux.zip
+          unzip -q android-ndk-r26c-linux.zip
+          echo "NDK_ROOT=$PWD/android-ndk-r26c" >> $GITHUB_ENV
+          ls -la android-ndk-r26c
 
-#include <jni.h>
+      - name: Build arm64-v8a Zygisk lib
+        run: |
+          ${{ env.NDK_ROOT }}/ndk-build \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=jni/Android.mk \
+            APP_PLATFORM=android-31 \
+            APP_ABI=arm64-v8a
 
-#define ZYGISK_API_VERSION 4
-
-namespace zygisk {
-
-struct AppSpecializeArgs {
-    jint &uid;
-    jint &gid;
-    jintArray &gids;
-    jint &runtime_flags;
-    jobjectArray &rlimits;
-    jint &mount_external;
-    jstring &se_info;
-    jstring &nice_name;
-    jintArray &is_child_zygote;
-    jstring &instruction_set;
-    jstring &app_data_dir;
-    jboolean &is_top_app;
-    jobjectArray &pkg_data_info_list;
-    jobjectArray &whitelisted_data_info_list;
-    jboolean &mount_data_dirs;
-    jboolean &use_legacy_data;
-};
-
-struct ServerSpecializeArgs {
-    jint &uid;
-    jint &gid;
-    jintArray &gids;
-    jint &runtime_flags;
-    jobjectArray &rlimits;
-    jlong &permitted_capabilities;
-    jlong &effective_capabilities;
-};
-
-enum class Option : int {
-    // 强制卸载/擦除当前进程中的所有 Zygisk 框架钩子和特征痕迹
-    // 这对于防止游戏反作弊扫描内存特征（如 maps 扫描）至关重要
-    FORCE_DENYLIST_UNHOOK = 0,
-    DLCLOSE_MODULE_LIBRARY = 1,
-};
-
-class Api {
-public:
-    // 连接并注册一个 PLT Hook
-    virtual void pltHookRegister(const char *regex, const char *symbol, void *new_func, void **old_func) = 0;
-
-    // 排除或者隐藏特定的文件路径（对于旧版本兼容，高版本推荐直接使用内核层 SuSFS）
-    virtual void excludeFileFromCompanion(const char *path) = 0;
-
-    // 设置进程级别的特殊选项（如 FORCE_DENYLIST_UNHOOK）
-    virtual void setOption(Option opt) = 0;
-
-    // 获取当前系统的全局特征标志
-    virtual int getFlags() = 0;
-
-    // 获取当前进程与伴随进程（Companion Process）通信的通信管道套接字 FD
-    virtual int getCompanionFd() = 0;
-};
-
-class ModuleBase {
-public:
-    virtual void onLoad(Api *api, JNIEnv *env) = 0;
-    virtual void preAppSpecialize(AppSpecializeArgs *args) {}
-    virtual void postAppSpecialize(const AppSpecializeArgs *args) {}
-    virtual void preServerSpecialize(ServerSpecializeArgs *args) {}
-    virtual void postServerSpecialize(const ServerSpecializeArgs *args) {}
-};
-
-} // namespace zygisk
-
-// 用于向 Magisk/Zygisk 框架注册自定义模块类的宏定义
-#define REGISTER_ZYGISK_MODULE(clazz) \
-extern "C" __attribute__((visibility("default"))) \
-void zygisk_module_entry(long api_version, void *Api, void *env) { \
-    if (api_version < ZYGISK_API_VERSION) return; \
-    auto api = reinterpret_cast<zygisk::Api *>(Api); \
-    auto JNI = reinterpret_cast<JNIEnv *>(env); \
-    auto module = new clazz(); \
-    api->pltHookRegister(".*", "zygote_module_entry", reinterpret_cast<void *>(module), nullptr); \
-    module->onLoad(api, JNI); \
-}
+      - name: Upload compiled lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zygisk-spoof-lib-arm64
+          path: libs/arm64-v8a/libzygisk.so
