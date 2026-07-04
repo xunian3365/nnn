@@ -1,15 +1,70 @@
 #include <jni.h>
 #include <string.h>
-#include <vulkan/vulkan.h>
 #include <dlfcn.h>
 #include <unistd.h> 
 #include "zygisk.hpp"
 
 using namespace zygisk;
 
+// ========== 自研Vulkan最小依赖集 不依赖系统头文件 彻底消除版本冲突 ==========
+#define VK_MAX_PHYSICAL_DEVICE_NAME_SIZE 256
+#define VK_MAX_DESCRIPTION_SIZE 256
+#define VK_UUID_SIZE 16
+#define VK_SUCCESS 0
+
+typedef void* VkPhysicalDevice;
+typedef int VkResult;
+typedef int VkStructureType;
+typedef int VkDriverId;
+
+#define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2      ((VkStructureType)1000059001)
+#define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES ((VkStructureType)1000194000)
+#define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES ((VkStructureType)1000070001)
+#define VK_DRIVER_ID_ARM_PROPRIETARY ((VkDriverId)1000000003)
+
+typedef struct VkBaseOutStructure {
+    VkStructureType sType;
+    struct VkBaseOutStructure* pNext;
+} VkBaseOutStructure;
+
+typedef struct VkPhysicalDeviceProperties {
+    uint32_t apiVersion;
+    uint32_t driverVersion;
+    uint32_t vendorID;
+    uint32_t deviceID;
+    uint32_t deviceType;
+    char     deviceName[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
+    uint8_t  pipelineCacheUUID[VK_UUID_SIZE];
+    uint8_t  _reserved[512]; // 后续字段占位 不访问
+} VkPhysicalDeviceProperties;
+
+typedef struct VkPhysicalDeviceProperties2 {
+    VkStructureType sType;
+    void* pNext;
+    VkPhysicalDeviceProperties properties;
+} VkPhysicalDeviceProperties2;
+
+typedef struct VkPhysicalDeviceDriverProperties {
+    VkStructureType sType;
+    void* pNext;
+    VkDriverId driverID;
+    char driverName[VK_MAX_DESCRIPTION_SIZE];
+    char driverInfo[VK_MAX_DESCRIPTION_SIZE];
+    uint8_t _reserved[32]; // 后续字段占位
+} VkPhysicalDeviceDriverProperties;
+
+typedef struct VkPhysicalDeviceVulkan11Properties {
+    VkStructureType sType;
+    void* pNext;
+    uint8_t deviceUUID[VK_UUID_SIZE];
+    uint8_t _reserved[256]; // 后续字段占位
+} VkPhysicalDeviceVulkan11Properties;
+
+// 函数指针类型定义
 typedef VkResult (*PFN_vkGetPhysicalDeviceProperties2)(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2* pProperties2);
 static PFN_vkGetPhysicalDeviceProperties2 orig_vkGetPhysicalDeviceProperties2 = nullptr;
 
+// ========== 伪造Vulkan属性回调 ==========
 VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2* pProperties2) {
     VkResult result = orig_vkGetPhysicalDeviceProperties2(physicalDevice, pProperties2);
     
@@ -30,7 +85,7 @@ VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, Vk
             }
             if (ext_structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES) {
                 auto* props11 = reinterpret_cast<VkPhysicalDeviceVulkan11Properties*>(ext_structure);
-                memset(props11->deviceUUID, 0x7F, VK_UUID_SIZE); 
+                memset(props11->deviceUUID, 0x7F, VK_UUID_SIZE);
             }
             ext_structure = ext_structure->pNext;
         }
@@ -38,6 +93,7 @@ VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, Vk
     return result;
 }
 
+// ========== Zygisk模块主类 ==========
 class KirinSpoofModule : public Module {
 public:
     void onLoad(Api* api, JNIEnv* env) override {
@@ -53,7 +109,6 @@ public:
             return; 
         }
 
-        // 与头文件字段对齐：package_name
         const char* pkg_name = env->GetStringUTFChars(args->package_name, nullptr);
         bool target_app = false;
 
@@ -96,5 +151,5 @@ private:
     Api* api;
     JNIEnv* env;
 };
-// 单行无拆分，彻底规避预处理器语法断裂
+// 单行无拆分 杜绝预处理器语法断裂
 REGISTER_ZYGISK_MODULE(KirinSpoofModule);
