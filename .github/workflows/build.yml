@@ -11,7 +11,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 打印jni目录全部文件，校验zygisk.hpp是否存在
       - name: List jni all files
         run: ls -la jni/
 
@@ -22,7 +21,6 @@ jobs:
           unzip -q android-ndk-r26c-linux.zip
           echo "NDK_ROOT=$PWD/android-ndk-r26c" >> $GITHUB_ENV
 
-      # 编译前清理旧缓存，避免旧文件干扰
       - name: Clean old build cache
         run: rm -rf obj libs
 
