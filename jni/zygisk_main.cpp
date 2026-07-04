@@ -36,7 +36,8 @@ VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, Vk
     return result;
 }
 
-class KirinSpoofModule : public zygisk::ModuleBase {
+// 核心修复 1：将 zygisk::ModuleBase 修改为标准规范的 zygisk::Module
+class KirinSpoofModule : public zygisk::Module {
 public:
     void onLoad(zygisk::Api* api, JNIEnv* env) override {
         this->api = api;
@@ -87,6 +88,6 @@ public:
 private:
     zygisk::Api* api;
     JNIEnv* env;
-};
+}; // <--- 核心修复 2：在这里补上了之前缺失的分号（;）
 
 REGISTER_ZYGISK_MODULE(KirinSpoofModule)
