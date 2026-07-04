@@ -36,7 +36,7 @@ VkResult fake_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, Vk
     return result;
 }
 
-class KirinSpoofModule : public zygisk::ModuleBase {
+class KirinSpoofModule : public zygisk::Module {
 public:
     void onLoad(zygisk::Api* api, JNIEnv* env) override {
         this->api = api;
@@ -55,11 +55,11 @@ public:
         bool target_app = false;
 
         if (pkg_name != nullptr) {
-            // 匹配主包、检测工具
+            // 匹配三角洲、设备检测工具
             if (strcmp(pkg_name, "com.tencent.tmgp.dfm") == 0) target_app = true;
             if (strcmp(pkg_name, "com.liuzh.deviceinfo") == 0) target_app = true;
 
-            // 匹配分身进程 :game
+            // 匹配游戏分身进程
             const char* proc_name = env->GetStringUTFChars(args->nice_name, nullptr);
             if (proc_name && strstr(proc_name, "com.tencent.tmgp.dfm:game")) {
                 target_app = true;
@@ -67,7 +67,7 @@ public:
             env->ReleaseStringUTFChars(args->nice_name, proc_name);
         }
 
-        // 仅目标进程启用GPU伪装
+        // 仅目标进程执行GPU伪装Hook
         if (target_app) {
             api->setOption(zygisk::Option::FORCE_DENYLIST_UNHOOK);
             
