@@ -1,0 +1,5 @@
+Language: Cpp
+ColumnLimit: 0
+AlignTrailingComments: false
+MacroBlockEnd: ""
+AllowAllArgumentsOnNextLine: false
