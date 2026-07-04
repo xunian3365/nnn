@@ -2,43 +2,31 @@ name: Build Zygisk Spoof SO
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # Step 1: 拉取仓库全部代码（严格遵循 jni/ 目录结构要求）
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: 自动配置官方 Android NDK r26c 工具链（彻底解决华为云镜像404及解压报错问题）
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r26c
-          link-to-sdk: true
-
-      # Step 3: 配置 Application.mk 编译标准并执行规范化 NDK 编译
-      - name: Compile SO Library
+      - name: Download Android NDK r26c 华为镜像加速
         run: |
-          # 1. 动态生成标准的 Application.mk 配置文件，强制约束 64 位架构与标准 C++ 运行时
-          cat << 'EOF' > jni/Application.mk
-          APP_ABI := arm64-v8a
-          APP_PLATFORM := android-31
-          APP_STL := c++_static
-          EOF
-          
-          # 2. 从组件输出中安全获取 NDK 绝对路径，规避手动拼接路径导致的语法报错
-          export ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ndk-path }}"
-          
-          # 3. 严格在 jni 所在的同级工程目录下（即仓库根目录）通过 NDK 标准规范拉起编译
-          $ANDROID_NDK_HOME/ndk-build NDK_PROJECT_PATH=.
+          wget -q https://repo.huaweicloud.com/android/android-ndk-r26c-linux.zip
+          unzip -q android-ndk-r26c-linux.zip
+          echo "NDK_ROOT=$PWD/android-ndk-r26c" >> $GITHUB_ENV
 
-      # Step 4: 导出并打包编译产物（精准修复原路径由于 ndk-build 行为导致的导出404问题）
-      - name: Upload built lib
+      - name: 编译arm64-v8a动态库
+        run: |
+          ${{ env.NDK_ROOT }}/ndk-build \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=jni/Android.mk \
+            APP_PLATFORM=android-31 \
+            APP_ABI=arm64-v8a
+
+      - name: 导出编译产物
         uses: actions/upload-artifact@v4
         with:
-          name: zygisk_spoof_lib
-          # 注意：ndk-build 在 NDK_PROJECT_PATH=. 规范下，编译生成的 libs 文件夹会存放在仓库根目录，而非 jni/ 内部
+          name: zygisk-spoof-lib-arm64
           path: libs/arm64-v8a/libzygisk.so
