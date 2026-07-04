@@ -53,8 +53,8 @@ public:
             return; 
         }
 
-        // 新版Zygisk SDK兼容：args->package 替代废弃 package_name
-        const char* pkg_name = env->GetStringUTFChars(args->package, nullptr);
+        // 与头文件字段对齐：package_name
+        const char* pkg_name = env->GetStringUTFChars(args->package_name, nullptr);
         bool target_app = false;
 
         if (pkg_name != nullptr) {
@@ -82,13 +82,13 @@ public:
                     api->pltHookRegister("libvulkan.so", "vkGetPhysicalDeviceProperties2", 
                                          (void*)fake_vkGetPhysicalDeviceProperties2, (void**)&orig_vkGetPhysicalDeviceProperties2);
                 }
-                dlclose(vulkan_handle); // 关闭动态库句柄，消除内存泄漏
+                dlclose(vulkan_handle);
             }
         }
 
-        // 安全释放字符串，做空值判断防止崩溃
+        // 安全释放字符串
         if (pkg_name != nullptr) {
-            env->ReleaseStringUTFChars(args->package, pkg_name);
+            env->ReleaseStringUTFChars(args->package_name, pkg_name);
         }
     }
 
@@ -96,5 +96,5 @@ private:
     Api* api;
     JNIEnv* env;
 };
-// 单行无拆分，根治预处理器语法断裂
+// 单行无拆分，彻底规避预处理器语法断裂
 REGISTER_ZYGISK_MODULE(KirinSpoofModule);
